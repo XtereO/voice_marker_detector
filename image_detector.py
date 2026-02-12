@@ -15,7 +15,7 @@ fruit_colors = {
     fruit_titles["tomato"]: [np.array([0, 180, 120]), np.array([10, 255, 255])],
     fruit_titles["lemon"]: [np.array([20, 0, 0]), np.array([40, 255, 255])]
 }
-
+screenshot_path = "captured_image.jpg"
 
 class Detector:
     def __init__(self):
@@ -28,6 +28,9 @@ class Detector:
     def show_frame(self, frame, elapsed_time):
         cv2.imshow("Marker Detection", frame)
         cv2.waitKey(elapsed_time)
+
+    def screen_frame(self, frame):
+        cv2.imwrite(screenshot_path, frame)
 
     def clean(self):
         self.cap.release()
