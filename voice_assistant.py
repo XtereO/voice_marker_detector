@@ -10,36 +10,38 @@ import sounddevice as sd
 import pyttsx3
 from vosk import Model, KaldiRecognizer
 
-MODEL_PATH = "vosk-model-small-ru-0.22"
+from image_detector import fruit_titles
+
+MODEL_PATH = "vosk-model-small-en-us-0.15"
 SAMPLE_RATE = 16000
 
 class Speaker:
     def __init__(self) -> None:
         self.rate = 175
         self.volume = 1.0
-        self._init_engine()
 
     def _init_engine(self):
-        # Pick a backend explicitly
         if sys.platform.startswith("win"):
-            self.engine = pyttsx3.init(driverName="sapi5")
+            engine = pyttsx3.init(driverName="sapi5")
         elif sys.platform == "darwin":
-            self.engine = pyttsx3.init(driverName="nsss")
+            engine = pyttsx3.init(driverName="nsss")
         else:
-            self.engine = pyttsx3.init(driverName="espeak")
+            engine = pyttsx3.init(driverName="espeak")
 
-        self.engine.setProperty("rate", self.rate) 
-        self.engine.setProperty("volume", self.volume)
+        engine.setProperty("rate", self.rate) 
+        engine.setProperty("volume", self.volume)
+        return engine
 
     def say(self, text: str) -> None:
         print(f"[ASSISTANT] {text}")
 
+        engine = self._init_engine()
         try:
-            self.engine.say(text)
-            self.engine.runAndWait()
+            engine.say(text)
+            engine.runAndWait()
         finally:
             try:
-                self.engine.stop()
+                engine.stop()
             except Exception:
                 pass
 
@@ -95,25 +97,22 @@ class Listener:
                         return text
 
 INSTRUCTIONS = [
-    "[Detect] some fruit [orange, lemon, tomato, green apple]",
-    "Turn on [music] on your laptop",
+    "[Find] some fruit [orange, lemon, tomato, green apple]",
     "Turn on [camera] on your laptop",
     "Make a [screenshot] on your camera",
-    "[Quit]"
+    "[Quit|Exit]"
 ]
 ANCHORS = {
-    "detect": "detect",
-    "music": "music",
+    "find": "find",
     "camera": "camera",
     "screenshot": "screenshot",
     "quit": "quit"
 }
 COMMANDS = [
-    (r"(?=.*detect)(?=.*\b(orange|apple|lemon|tomato)\b)", "Start detecting...", ANCHORS["detect"]),
-    (r"(?=.*music)", "Turning on music...", ANCHORS["music"]),
-    (r"(?=.*camera)", "Turning on camera...", ANCHORS["camera"]),
-    (r"(?=.*screenshot)", "Say cheese...", ANCHORS["screenshot"]),
-    (r"\b(quit)\b", "Goodbye.", ANCHORS["quit"]),
+    (r"(?=.*find)(?=.*\b(orange|apple|lemon|tomato)\b)", "Start detecting...", ANCHORS["find"]),
+    (r"(?=.*camera)", "Switching camera...", ANCHORS["camera"]),
+    (r"\b(screenshot|screen shot)\b", "Say cheese...", ANCHORS["screenshot"]),
+    (r"\b(quit|exit)\b", "Goodbye.", ANCHORS["quit"]),
 ]
 
 @dataclass
@@ -131,15 +130,14 @@ class VoiceAssistant:
         self.listener = Listener(MODEL_PATH, SAMPLE_RATE)
 
     def greet(self):
-        greeting = ";\n".join([
-                    "Hello, I'm ready to assist you. I can:",
-                    *INSTRUCTIONS
-                    ])
+        greeting = "Hello, I'm ready to assist you. I can:"
         self.speaker.say(greeting)
+        print(";\n".join(INSTRUCTIONS))
     
     def listen_command(self, callback):
         text = self.listener.listen_text(timeout_s=10.0)
         text = text if text is not None else ""
+        print("recognized text is ", text)
         command_result = self.recognize_command(text)
         if(command_result.speak_time):
             self.speaker.say(command_result.response)
@@ -153,22 +151,21 @@ class VoiceAssistant:
 
         for pattern, response, anchor in COMMANDS:
             if re.search(pattern, t):
-                if anchor == ANCHORS["detect"]:
+                if anchor == ANCHORS["find"]:
                     fruit_title = None
-                    if re.search(r"\b(orange)\b"):
-                        fruit_title = "orange"
-                    elif re.search(r"\b(lemon)\b"):
-                        fruit_title = "lemon"
-                    elif re.search(r"\b(apple)\b"):
-                        fruit_title = "apple"
-                    elif re.search(r"\b(tomato)\b"):
-                        fruit_title = "tomato"
+                    if re.search(r"\b(orange)\b", t):
+                        fruit_title = fruit_titles["orange"]
+                    elif re.search(r"\b(lemon)\b", t):
+                        fruit_title = fruit_titles["lemon"]
+                    elif re.search(r"\b(apple)\b", t):
+                        fruit_title = fruit_titles["green_apple"]
+                    elif re.search(r"\b(tomato)\b", t):
+                        fruit_title = fruit_titles["tomato"]
                     if fruit_title is None:
                         break
-                    return CommandResult(handled=True, response=response, speak_time=True, anchor=anchor, payload={"fruit_title": fruit_title})
+                    return CommandResult(handled=True, response=f"[{fruit_title}] {response}", speak_time=True, anchor=anchor, payload={"fruit_title": fruit_title})
                 else:
                     return CommandResult(handled=True, response=response, speak_time=True, anchor=anchor)
-        print("empty...")
         return CommandResult(
             handled=False,
             speak_time=False,
@@ -178,54 +175,3 @@ class VoiceAssistant:
                                  ]),
         )
     
-
-def current_time_str() -> str:
-    return time.strftime("%H:%M")
-
-def main():
-    print("=== Voice Assistant Demo (single file) ===")
-    print("Wake phrase: 'привет' / 'здравствуй' / 'ассистент'")
-    print("Commands: 'как дела', 'который час', 'помощь', 'выход'\n")
-
-    speaker = Speaker()
-    listener = Listener(MODEL_PATH, SAMPLE_RATE)
-
-    awake = False
-
-    while True:
-        if not awake:
-            print("[SYSTEM] Waiting for wake phrase...")
-            text = listener.listen_text(timeout_s=20.0)
-            if not text:
-                continue
-
-            print(f"[YOU] {text}")
-            if is_wake_phrase(text):
-                awake = True
-                speaker.say("Привет! Я слушаю. Скажи команду.")
-            else:
-                print("[SYSTEM] Not a wake phrase. Try: 'привет' or 'ассистент'.")
-            continue
-
-        print("[SYSTEM] Listening for command...")
-        text = listener.listen_text(timeout_s=10.0)
-
-        if not text:
-            speaker.say("Я вас не услышал. Повторите команду или скажите выход.")
-            continue
-
-        print(f"[YOU] {text}")
-
-        result = route_command(text)
-        speaker.say(result.response)
-
-        if result.speak_time:
-            speaker.say(f"Сейчас {current_time_str()}")
-
-        if result.should_exit:
-            break
-
-        # Uncomment if you want to require wake phrase each time:
-        # awake = False
-
-    print("=== Done ===")
